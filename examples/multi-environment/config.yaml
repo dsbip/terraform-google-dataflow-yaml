@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# One file for every environment. main.tf calls the module once per
+# environment. Placeholders that contain ": " or quotes are wrapped in single
+# quotes, so the file is valid YAML both before rendering (for editors) and
+# after.
+#
+# Variables: env (dev, staging, prod), project_id, max_workers.
+
+defaults:
+  region: europe-west1
+  labels:
+    environment: ${env}
+  jobs: &env
+    service_account_email: dataflow@${project_id}.iam.gserviceaccount.com
+    temp_location: gs://${project_id}-dataflow/tmp
+    max_workers: ${max_workers}
+    machine_type: '${env == "prod" ? "n2-standard-4" : "e2-standard-2"}'
+  pipelines:
+    <<: *env
+
+jobs:
+  events-ingest:
+    google_template:
+      name: PubSub_to_BigQuery_Flex
+    parameters:
+      inputSubscription: projects/${project_id}/subscriptions/events
+      outputTableSpec: ${project_id}:events.raw
+    enable_streaming_engine: true
+    on_delete: '${env == "prod" ? "drain" : "cancel"}'
+%{ if env == "prod" ~}
+    deletion_policy: PREVENT
+%{ endif ~}
+
+  # A one-off backfill that only exists in dev.
+  backfill:
+    enabled: ${env == "dev"}
+    google_template:
+      name: GCS_Text_to_BigQuery_Flex
+    parameters:
+      inputFilePattern: gs://${project_id}-landing/backfill/*.json
+      JSONPath: gs://${project_id}-dataflow/schemas/events.json
+      outputTable: ${project_id}:events.raw
+      bigQueryLoadingTemporaryDirectory: gs://${project_id}-dataflow/bq-tmp
+
+pipelines:
+  daily-aggregates:
+    schedule: '${env == "prod" ? "0 2 * * *" : "0 6 * * 1"}'
+    state: '${env == "staging" ? "PAUSED" : "ACTIVE"}'
+    google_template:
+      name: BigQuery_to_Parquet
+    parameters:
+      tableRef: ${project_id}:events.daily
+      bucket: gs://${project_id}-exports/daily/

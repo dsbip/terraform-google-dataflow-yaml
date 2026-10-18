@@ -1,0 +1,27 @@
+# Rendered with templatefile(): env comes from template_vars, project_id and
+# region from the module's variables.
+defaults:
+  region: ${region}
+  labels:
+    environment: ${env}
+  jobs:
+    temp_location: gs://${project_id}-df/tmp
+
+jobs:
+  ingest-${env}:
+    google_template: { name: PubSub_to_BigQuery_Flex }
+    parameters:
+      inputTopic: projects/${project_id}/topics/in-${env}
+%{ if env == "prod" ~}
+    max_workers: 50
+%{ endif ~}
+  literal:
+    enabled: ${env == "prod"}
+    google_template: { name: Word_Count, type: classic }
+    parameters:
+      output: "gs://bucket/$${not_a_placeholder}"
+
+pipelines:
+  nightly_${env}:
+    schedule: "0 2 * * *"
+    google_template: { name: BigQuery_to_Parquet }

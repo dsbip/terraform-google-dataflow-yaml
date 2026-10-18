@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# Recurring batch work with Data Pipelines: each pipeline launches a new
+# Dataflow job on its schedule (Cloud Scheduler under the hood), so batch jobs
+# don't depend on terraform apply runs.
+#
+# Shared settings are written once with a YAML anchor (&workers) and merged
+# into each pipeline's defaults (<<: *workers).
+
+defaults:
+  region: europe-west1
+  labels:
+    team: analytics
+  jobs: &workers
+    service_account_email: dataflow-batch@${project_id}.iam.gserviceaccount.com
+    temp_location: gs://${project_id}-dataflow/tmp
+    ip_configuration: WORKER_IP_PRIVATE
+    subnetwork: regions/europe-west1/subnetworks/dataflow
+  pipelines:
+    <<: *workers
+    scheduler_service_account_email: dataflow-scheduler@${project_id}.iam.gserviceaccount.com
+    time_zone: Europe/Berlin
+
+pipelines:
+  # Daily load of the previous day's files (Flex Template). FlexRS trades a
+  # delayed start for lower cost.
+  daily-orders-load:
+    display_name: daily_orders_load
+    schedule: "30 2 * * *"
+    google_template:
+      name: GCS_Text_to_BigQuery_Flex
+    parameters:
+      inputFilePattern: gs://${project_id}-landing/orders/*.json
+      JSONPath: gs://${project_id}-dataflow/schemas/orders.json
+      outputTable: ${project_id}:sales.orders
+      bigQueryLoadingTemporaryDirectory: gs://${project_id}-dataflow/bq-tmp
+    flexrs_goal: FLEXRS_COST_OPTIMIZED
+    max_workers: 20
+
+  # Weekly export of a table to Parquet, Sundays at 04:00.
+  weekly-parquet-export:
+    schedule: "0 4 * * 0"
+    google_template:
+      name: BigQuery_to_Parquet
+    parameters:
+      tableRef: ${project_id}:sales.orders
+      bucket: gs://${project_id}-exports/orders/
+      numShards: 10
+    machine_type: n2-highmem-4
+
+  # Classic template, monthly; created paused until the archive bucket is
+  # signed off.
+  monthly-compress:
+    schedule: "0 5 1 * *"
+    state: PAUSED
+    google_template:
+      name: Bulk_Compress_GCS_Files
+      type: classic
+    parameters:
+      inputFilePattern: gs://${project_id}-logs/*.log
+      outputDirectory: gs://${project_id}-archive/logs/
+      outputFailureFile: gs://${project_id}-archive/failures.csv
+      compression: GZIP
+
+  # No schedule: the type defaults to STREAMING.
+  events-stream:
+    google_template:
+      name: PubSub_to_BigQuery_Flex
+    parameters:
+      inputSubscription: projects/${project_id}/subscriptions/events
+      outputTableSpec: ${project_id}:analytics.events
+    enable_streaming_engine: true

@@ -1,0 +1,44 @@
+# Live-test fixture: deployed by tests/python/test_live.py into a real
+# project. Names start with dfyaml-<suffix>. A streaming job (cheap: one small
+# worker, cancelled on destroy) proves a launch and a stable second plan; a
+# paused pipeline (no jobs launched) proves in-place updates via revision.
+
+defaults:
+  labels:
+    purpose: terraform-module-test
+    run: ${suffix}
+  jobs:
+    temp_location: gs://${bucket}/tmp
+    staging_location: gs://${bucket}/staging
+    machine_type: e2-standard-2
+    max_workers: 1
+    num_workers: 1
+    on_delete: cancel
+    enable_streaming_engine: true
+
+jobs:
+  stream:
+    name: dfyaml-${suffix}-stream
+    google_template:
+      name: Cloud_PubSub_to_GCS_Text_Flex
+    parameters:
+      inputTopic: projects/${project_id}/topics/${topic}
+      outputDirectory: gs://${bucket}/out/
+      outputFilenamePrefix: live-
+      windowDuration: 5m
+
+%{ if enable_pipeline ~}
+pipelines:
+  nightly:
+    name: dfyaml_${suffix}_nightly
+    display_name: dfyaml_${suffix}_r${revision}
+    state: PAUSED
+    schedule: "0 ${revision} * * *"
+    google_template:
+      name: Word_Count
+      type: classic
+    temp_location: gs://${bucket}/tmp
+    parameters:
+      inputFile: gs://dataflow-samples/shakespeare/kinglear.txt
+      output: gs://${bucket}/wordcount/out
+%{ endif ~}

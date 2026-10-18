@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# Your own templates: Flex Templates built with `gcloud dataflow flex-template
+# build` (spec files in your bucket) and a classic template you staged.
+#
+# Shows the Flex-only settings: launcher machine type, custom SDK container
+# image, fixed worker count without autoscaling, extra pipeline options and
+# adopting an already running job.
+
+defaults:
+  region: us-central1
+  jobs:
+    service_account_email: etl-workers@${project_id}.iam.gserviceaccount.com
+    temp_location: gs://${templates_bucket}/tmp
+    labels:
+      app: customer-etl
+      version: ${version}
+
+jobs:
+  # Python Flex Template with a custom worker image and a fixed pool of 8
+  # workers (no autoscaling).
+  enrich-customers:
+    container_spec_gcs_path: gs://${templates_bucket}/flex/enrich-customers-${version}.json
+    parameters:
+      input_table: ${project_id}:crm.customers
+      output_table: ${project_id}:crm.customers_enriched
+      batch_size: 500
+      dry_run: false
+    sdk_container_image: us-central1-docker.pkg.dev/${project_id}/dataflow/enrich-worker:${version}
+    launcher_machine_type: n2-standard-4
+    machine_type: n2-highmem-8
+    autoscaling_algorithm: AUTOSCALING_ALGORITHM_NONE
+    num_workers: 8
+    max_workers: 8
+    additional_pipeline_options:
+      - numberOfWorkerHarnessThreads=16
+      - experiments=use_runner_v2
+    staging_location: gs://${templates_bucket}/staging
+
+  # Java streaming Flex Template; create_ignore_already_exists adopts a job
+  # that is already running under this name (e.g. after a state loss).
+  fraud-scoring:
+    container_spec_gcs_path: gs://${templates_bucket}/flex/fraud-scoring-${version}.json
+    parameters:
+      inputSubscription: projects/${project_id}/subscriptions/payments-fraud
+      modelUri: gs://${project_id}-models/fraud/v12
+    enable_streaming_engine: true
+    create_ignore_already_exists: true
+    on_delete: cancel                  # state can be rebuilt; don't wait for drain
+    skip_wait_on_job_termination: true
+
+  # Classic template staged by your build (mvn compile exec:java ... --templateLocation=...).
+  nightly-dedupe:
+    template_gcs_path: gs://${templates_bucket}/classic/dedupe-${version}
+    parameters:
+      inputTable: ${project_id}:crm.contacts
+      outputTable: ${project_id}:crm.contacts_dedup
+    zone: us-central1-b
+    machine_type: e2-standard-4

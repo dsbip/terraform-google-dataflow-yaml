@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# Basic example: Google's classic Word Count template, counting the words of
+# a public sample text into a bucket of yours. The project and region come
+# from the module's variables (see main.tf).
+#
+# Batch jobs finish. Once a job has finished, the provider drops it from the
+# state, and the next apply runs it again; for recurring batch work, use
+# pipelines (see examples/batch-pipelines).
+
+jobs:
+  word-count:
+    google_template:
+      name: Word_Count
+      type: classic
+    temp_location: gs://${bucket}/tmp
+    parameters:
+      inputFile: gs://dataflow-samples/shakespeare/kinglear.txt
+      output: gs://${bucket}/wordcount/kinglear
+    max_workers: 2

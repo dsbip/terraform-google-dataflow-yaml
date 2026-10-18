@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# Complete example: every configuration key the module supports, across five
+# jobs and five pipelines (one of each disabled). Read it next to
+# docs/jobs.md and docs/pipelines.md; tests/python/test_schema.py checks that
+# no key is missing here.
+
+project_id: ${project_id}
+
+defaults:
+  region: europe-west1
+  labels:
+    platform: data
+    owner: analytics
+  jobs:
+    service_account_email: df-jobs@${project_id}.iam.gserviceaccount.com
+    temp_location: gs://${project_id}-dataflow/tmp
+    num_workers: 1                  # Flex only: not applied to classic jobs
+    labels:
+      kind: job
+  pipelines:
+    service_account_email: df-pipelines@${project_id}.iam.gserviceaccount.com
+    scheduler_service_account_email: df-scheduler@${project_id}.iam.gserviceaccount.com
+    temp_location: gs://${project_id}-dataflow/tmp
+    time_zone: Europe/Berlin
+
+jobs:
+  # Google-provided Flex Template with every Flex and common setting.
+  orders-stream:
+    name: orders-to-bq
+    labels: { tier: critical }
+    google_template:
+      name: PubSub_to_BigQuery_Flex
+      type: flex
+      version: 2026-09-15-00_RC00
+    parameters:
+      inputSubscription: projects/${project_id}/subscriptions/orders
+      outputTableSpec: ${project_id}:sales.orders
+      useStorageWriteApi: true
+    staging_location: gs://${project_id}-dataflow/staging
+    network: data-vpc
+    subnetwork: regions/europe-west1/subnetworks/dataflow
+    ip_configuration: WORKER_IP_PRIVATE
+    machine_type: n2-standard-4
+    num_workers: 2
+    max_workers: 30
+    kms_key_name: projects/${project_id}/locations/europe-west1/keyRings/df/cryptoKeys/jobs
+    enable_streaming_engine: true
+    additional_experiments: [enable_prime]
+    additional_pipeline_options: [numberOfWorkerHarnessThreads=12]
+    launcher_machine_type: n2-standard-2
+    sdk_container_image: europe-west1-docker.pkg.dev/${project_id}/dataflow/beam-java:2.60.0
+    autoscaling_algorithm: AUTOSCALING_ALGORITHM_BASIC
+    transform_name_mapping: { ReadMessages: ReadOrders }
+    create_ignore_already_exists: true
+    on_delete: drain
+    skip_wait_on_job_termination: false
+    deletion_policy: PREVENT
+
+  # Own Flex Template in another project and region.
+  scoring:
+    project_id: ml-platform
+    region: us-central1
+    container_spec_gcs_path: gs://ml-platform-templates/flex/scoring-1.4.json
+    parameters: { model: gs://ml-platform-models/scoring/v7 }
+    temp_location: gs://ml-platform-dataflow/tmp
+
+  # Own classic template with a worker zone; num_workers from defaults is
+  # ignored because it only applies to Flex Templates.
+  dedupe:
+    template_gcs_path: gs://${project_id}-templates/classic/dedupe-2.0
+    parameters: { table: "${project_id}:crm.contacts" }
+    zone: europe-west1-b
+
+  # Google-provided classic template.
+  word-count:
+    google_template: { name: Word_Count, type: classic }
+    parameters:
+      inputFile: gs://dataflow-samples/shakespeare/kinglear.txt
+      output: gs://${project_id}-dataflow/wordcount/out
+
+  retired-job:
+    enabled: false
+    google_template: { name: Word_Count, type: classic }
+
+pipelines:
+  # Scheduled Flex Template pipeline with every Flex setting.
+  daily-load:
+    name: daily_load
+    display_name: daily_orders_load
+    type: BATCH
+    state: ACTIVE
+    schedule: "30 2 * * *"
+    job_name: daily-orders-load
+    labels: { tier: standard }
+    pipeline_sources: { origin: terraform }
+    google_template:
+      name: GCS_Text_to_BigQuery_Flex
+    parameters:
+      inputFilePattern: gs://${project_id}-landing/orders/*.json
+      JSONPath: gs://${project_id}-dataflow/schemas/orders.json
+      outputTable: ${project_id}:sales.orders
+      bigQueryLoadingTemporaryDirectory: gs://${project_id}-dataflow/bq-tmp
+    launch_options: { enableLauncherVmSerialPortLogging: "true" }
+    flexrs_goal: FLEXRS_COST_OPTIMIZED
+    network: data-vpc
+    subnetwork: regions/europe-west1/subnetworks/dataflow
+    ip_configuration: WORKER_IP_PRIVATE
+    machine_type: n2-standard-4
+    num_workers: 2
+    max_workers: 20
+    kms_key_name: projects/${project_id}/locations/europe-west1/keyRings/df/cryptoKeys/jobs
+    additional_experiments: [use_runner_v2]
+    worker_region: europe-west4
+    validate_only: false
+    deletion_policy: DELETE
+
+  # Classic template pipeline with a zone and temp-dir validation skipped.
+  monthly-compress:
+    schedule: "0 5 1 * *"
+    google_template: { name: Bulk_Compress_GCS_Files, type: classic }
+    parameters:
+      inputFilePattern: gs://${project_id}-logs/*.log
+      outputDirectory: gs://${project_id}-archive/
+      outputFailureFile: gs://${project_id}-archive/failures.csv
+      compression: GZIP
+    zone: europe-west1-c
+    bypass_temp_dir_validation: true
+
+  # Streaming pipeline that updates its running job in place.
+  events:
+    type: STREAMING
+    container_spec_gcs_path: gs://${project_id}-templates/flex/events-3.1.json
+    parameters: { inputTopic: "projects/${project_id}/topics/events" }
+    enable_streaming_engine: true
+    update: true
+    transform_name_mapping: { Parse: ParseEvents }
+
+  # Classic template pipeline with workers in a zone of another region.
+  weekly-report:
+    project_id: reporting-prod
+    region: europe-west3
+    schedule: "0 7 * * 1"
+    state: PAUSED
+    template_gcs_path: gs://reporting-prod-templates/classic/weekly-report
+    worker_zone: europe-west3-b
+    temp_location: gs://reporting-prod-dataflow/tmp
+
+  retired-pipeline:
+    enabled: false
+    schedule: "0 0 * * *"
+    google_template: { name: Word_Count, type: classic }

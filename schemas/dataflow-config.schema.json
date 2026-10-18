@@ -1,0 +1,777 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/dsbip/terraform-google-dataflow-yaml/schemas/dataflow-config.schema.json",
+  "title": "Dataflow YAML configuration",
+  "description": "Configuration file of the terraform-google-dataflow-yaml module.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "description": "Default project for every job and pipeline in this file. Takes precedence over the module's project_id variable; an entry's own project_id takes precedence over this."
+    },
+    "defaults": {
+      "$ref": "#/definitions/defaults"
+    },
+    "jobs": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Dataflow jobs keyed by logical key (the default job name).",
+      "additionalProperties": {
+        "$ref": "#/definitions/job"
+      }
+    },
+    "pipelines": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Data Pipelines keyed by logical key (the default pipeline ID).",
+      "additionalProperties": {
+        "$ref": "#/definitions/pipeline"
+      }
+    }
+  },
+  "definitions": {
+    "template_placeholder": {
+      "type": "string",
+      "description": "A ${...} placeholder, replaced when the module renders the file with templatefile().",
+      "pattern": "^.*\\$\\{[^}]+\\}.*$"
+    },
+    "labels": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Key/value labels. Numbers and booleans are converted to strings.",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "parameters": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Template parameters.",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "string_map": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "String to string mapping.",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "deletion_policy": {
+      "description": "Provider-level deletion policy. PREVENT makes terraform destroy fail; ABANDON removes the resource from state without deleting it.",
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "DELETE",
+            "PREVENT",
+            "ABANDON"
+          ]
+        },
+        {
+          "$ref": "#/definitions/template_placeholder"
+        }
+      ]
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Values applied to every job and pipeline unless it sets its own. See docs/configuration.md for the merge rules.",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Default region of every job and pipeline. Takes precedence over the module's region variable."
+        },
+        "labels": {
+          "description": "Labels added to every job and pipeline.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/labels"
+            }
+          ]
+        },
+        "jobs": {
+          "description": "Default job settings, merged underneath every job (mappings merge up to three levels deep; lists and other values are replaced).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/job"
+            },
+            {
+              "propertyNames": {
+                "not": {
+                  "enum": [
+                    "name"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "pipelines": {
+          "description": "Default pipeline settings, merged underneath every pipeline.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/pipeline"
+            },
+            {
+              "propertyNames": {
+                "not": {
+                  "enum": [
+                    "name",
+                    "job_name"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "google_template": {
+      "type": "object",
+      "description": "A Google-provided template, by name: gs://dataflow-templates-REGION/VERSION/[flex/]NAME.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Template name, e.g. PubSub_to_BigQuery_Flex, GCS_Text_to_BigQuery_Flex or Word_Count."
+        },
+        "type": {
+          "description": "flex (default) or classic.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "flex",
+                "classic"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "version": {
+          "type": "string",
+          "description": "Template version: latest (default) or a release such as 2026-10-01-00_RC00."
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "job": {
+      "type": "object",
+      "description": "A Dataflow job launched from a classic template or a Flex Template. Set exactly one of template_gcs_path, container_spec_gcs_path and google_template.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set to false to skip this job (default true). It is still validated.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "name": {
+          "description": "Job name (default: the key). Lowercase letters, digits and hyphens, starting with a letter.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "project_id": {
+          "type": "string",
+          "description": "Project of this job. Takes precedence over the top-level project_id."
+        },
+        "region": {
+          "type": "string",
+          "description": "Region of this job. Takes precedence over defaults.region."
+        },
+        "template_gcs_path": {
+          "description": "Classic template: gs:// path of the template file.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "container_spec_gcs_path": {
+          "description": "Flex Template: gs:// path of the template spec file.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "google_template": {
+          "$ref": "#/definitions/google_template"
+        },
+        "parameters": {
+          "description": "Template parameters. Numbers and booleans become strings.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/parameters"
+            }
+          ]
+        },
+        "labels": {
+          "description": "Labels of the Dataflow job (for pipelines: of every job the pipeline launches).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/labels"
+            }
+          ]
+        },
+        "temp_location": {
+          "description": "gs:// path for temporary files. Required for classic templates.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "service_account_email": {
+          "type": "string",
+          "description": "Worker service account (needs roles/dataflow.worker)."
+        },
+        "network": {
+          "type": "string",
+          "description": "VPC network of the workers (name)."
+        },
+        "subnetwork": {
+          "type": "string",
+          "description": "Subnetwork of the workers: regions/REGION/subnetworks/NAME or a full URL (needed for Shared VPC)."
+        },
+        "machine_type": {
+          "type": "string",
+          "description": "Worker machine type, e.g. n2-standard-4."
+        },
+        "max_workers": {
+          "description": "Maximum number of workers.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4000
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "num_workers": {
+          "description": "Initial number of workers (Flex Templates and pipelines).",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4000
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "ip_configuration": {
+          "description": "Worker IP addresses: WORKER_IP_PRIVATE needs Private Google Access on the subnetwork.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "WORKER_IP_PUBLIC",
+                "WORKER_IP_PRIVATE"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "kms_key_name": {
+          "type": "string",
+          "description": "Cloud KMS key for the job's data (CMEK)."
+        },
+        "additional_experiments": {
+          "type": "array",
+          "description": "Dataflow experiments, e.g. [enable_prime, use_runner_v2].",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enable_streaming_engine": {
+          "description": "Use Streaming Engine (streaming jobs).",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "transform_name_mapping": {
+          "description": "Old to new transform name prefixes, for in-place updates of streaming jobs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/string_map"
+            }
+          ]
+        },
+        "zone": {
+          "type": "string",
+          "description": "Worker zone (classic templates; default: chosen by Dataflow)."
+        },
+        "staging_location": {
+          "description": "gs:// path for staging files (Flex Templates).",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "launcher_machine_type": {
+          "type": "string",
+          "description": "Machine type of the Flex Template launcher VM (default n1-standard-1)."
+        },
+        "sdk_container_image": {
+          "type": "string",
+          "description": "Custom SDK container image for the workers (Flex Templates)."
+        },
+        "autoscaling_algorithm": {
+          "description": "Autoscaling (Flex Templates).",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "AUTOSCALING_ALGORITHM_NONE",
+                "AUTOSCALING_ALGORITHM_BASIC"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "additional_pipeline_options": {
+          "type": "array",
+          "description": "Extra pipeline options, e.g. [numberOfWorkerHarnessThreads=20] (Flex Templates).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "create_ignore_already_exists": {
+          "description": "Adopt a running job with the same name instead of failing (Flex Templates).",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "on_delete": {
+          "description": "What terraform destroy (or a replacement) does with a running job: drain or cancel.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "drain",
+                "cancel"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "skip_wait_on_job_termination": {
+          "description": "Don't wait for draining or cancelling to finish (the next job must then use a different name).",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "deletion_policy": {
+          "$ref": "#/definitions/deletion_policy"
+        }
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "description": "A Data Pipeline: a Dataflow template launched on a schedule (batch) or kept running (streaming). Set exactly one of template_gcs_path, container_spec_gcs_path and google_template.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Set to false to skip this pipeline (default true). It is still validated.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "name": {
+          "description": "Pipeline ID (default: the key): letters, digits, hyphens and underscores.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,63}$"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "project_id": {
+          "type": "string",
+          "description": "Project of this pipeline."
+        },
+        "region": {
+          "type": "string",
+          "description": "Region of this pipeline (an App Engine region: Data Pipelines uses Cloud Scheduler)."
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Display name (letters, digits, hyphens and underscores)."
+        },
+        "type": {
+          "description": "BATCH (launched on the schedule) or STREAMING; the long forms PIPELINE_TYPE_* are accepted too.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "BATCH",
+                "STREAMING",
+                "PIPELINE_TYPE_BATCH",
+                "PIPELINE_TYPE_STREAMING"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "state": {
+          "description": "ACTIVE (default) or PAUSED; the long forms STATE_* are accepted too.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "PAUSED",
+                "STATE_ACTIVE",
+                "STATE_PAUSED"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Cron schedule for batch pipelines, e.g. \"0 3 * * *\"."
+        },
+        "time_zone": {
+          "type": "string",
+          "description": "Time zone of the schedule, e.g. Europe/Berlin (default UTC)."
+        },
+        "scheduler_service_account_email": {
+          "type": "string",
+          "description": "Service account Cloud Scheduler uses to launch the jobs (default: the Compute Engine default service account)."
+        },
+        "pipeline_sources": {
+          "description": "Source metadata of the pipeline (e.g. set by Dataplex).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/string_map"
+            }
+          ]
+        },
+        "job_name": {
+          "description": "Name of the launched jobs (default: the pipeline ID in lowercase, with underscores as hyphens).",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z]([-a-z0-9]*[a-z0-9])?$"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "template_gcs_path": {
+          "description": "Classic template: gs:// path of the template file.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "container_spec_gcs_path": {
+          "description": "Flex Template: gs:// path of the template spec file.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "google_template": {
+          "$ref": "#/definitions/google_template"
+        },
+        "parameters": {
+          "description": "Template parameters. Numbers and booleans become strings.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/parameters"
+            }
+          ]
+        },
+        "labels": {
+          "description": "Labels of the Dataflow job (for pipelines: of every job the pipeline launches).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/labels"
+            }
+          ]
+        },
+        "temp_location": {
+          "description": "gs:// path for temporary files. Required for classic templates.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^gs://.+"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "service_account_email": {
+          "type": "string",
+          "description": "Worker service account (needs roles/dataflow.worker)."
+        },
+        "network": {
+          "type": "string",
+          "description": "VPC network of the workers (name)."
+        },
+        "subnetwork": {
+          "type": "string",
+          "description": "Subnetwork of the workers: regions/REGION/subnetworks/NAME or a full URL (needed for Shared VPC)."
+        },
+        "machine_type": {
+          "type": "string",
+          "description": "Worker machine type, e.g. n2-standard-4."
+        },
+        "max_workers": {
+          "description": "Maximum number of workers.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4000
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "num_workers": {
+          "description": "Initial number of workers (Flex Templates and pipelines).",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4000
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "ip_configuration": {
+          "description": "Worker IP addresses: WORKER_IP_PRIVATE needs Private Google Access on the subnetwork.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "WORKER_IP_PUBLIC",
+                "WORKER_IP_PRIVATE"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "kms_key_name": {
+          "type": "string",
+          "description": "Cloud KMS key for the job's data (CMEK)."
+        },
+        "additional_experiments": {
+          "type": "array",
+          "description": "Dataflow experiments, e.g. [enable_prime, use_runner_v2].",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enable_streaming_engine": {
+          "description": "Use Streaming Engine (streaming jobs).",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "transform_name_mapping": {
+          "description": "Old to new transform name prefixes, for in-place updates of streaming jobs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/string_map"
+            }
+          ]
+        },
+        "zone": {
+          "type": "string",
+          "description": "Worker zone."
+        },
+        "worker_region": {
+          "type": "string",
+          "description": "Region of the workers, if different from the pipeline's region."
+        },
+        "worker_zone": {
+          "type": "string",
+          "description": "Zone of the workers."
+        },
+        "launch_options": {
+          "description": "Launch options common to Flex Templates (not template parameters).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/string_map"
+            }
+          ]
+        },
+        "flexrs_goal": {
+          "description": "Flexible Resource Scheduling (Flex Templates, batch): cheaper, delayed start.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "FLEXRS_UNSPECIFIED",
+                "FLEXRS_SPEED_OPTIMIZED",
+                "FLEXRS_COST_OPTIMIZED"
+              ]
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "bypass_temp_dir_validation": {
+          "description": "Skip validating temp_location (classic templates).",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "update": {
+          "description": "Update a running streaming job with the same name instead of starting a new one.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "validate_only": {
+          "description": "Only validate the launch request, don't start jobs.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/template_placeholder"
+            }
+          ]
+        },
+        "deletion_policy": {
+          "$ref": "#/definitions/deletion_policy"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+# yaml-language-server: $schema=../../schemas/dataflow-config.schema.json
+#
+# Locked-down workers:
+#   - private IPs only (the subnetwork needs Private Google Access)
+#   - a Shared VPC subnetwork from the host project (full URL)
+#   - customer-managed encryption keys (CMEK) for job state and data
+#   - a dedicated, least-privilege worker service account
+#   - workers pinned to a zone or region different from the job's region
+#   - deletion protection for the business-critical streaming job
+
+project_id: ${project_id}
+
+defaults:
+  region: europe-west3
+  labels:
+    data-classification: restricted
+  jobs: &secure
+    service_account_email: df-restricted@${project_id}.iam.gserviceaccount.com
+    ip_configuration: WORKER_IP_PRIVATE
+    network: shared-vpc
+    subnetwork: https://www.googleapis.com/compute/v1/projects/${host_project}/regions/europe-west3/subnetworks/dataflow-restricted
+    kms_key_name: projects/${project_id}/locations/europe-west3/keyRings/dataflow/cryptoKeys/jobs
+    temp_location: gs://${project_id}-df-restricted/tmp
+  pipelines:
+    <<: *secure
+    scheduler_service_account_email: df-scheduler@${project_id}.iam.gserviceaccount.com
+
+jobs:
+  payments-stream:
+    google_template:
+      name: PubSub_to_BigQuery_Flex
+    parameters:
+      inputSubscription: projects/${project_id}/subscriptions/payments
+      outputTableSpec: ${project_id}:payments.transactions
+    enable_streaming_engine: true
+    deletion_policy: PREVENT         # terraform destroy fails while this job exists
+    on_delete: drain
+
+  # Classic template with workers in one zone.
+  archive-compress:
+    google_template:
+      name: Bulk_Compress_GCS_Files
+      type: classic
+    parameters:
+      inputFilePattern: gs://${project_id}-df-restricted/incoming/*.csv
+      outputDirectory: gs://${project_id}-df-restricted/archive/
+      outputFailureFile: gs://${project_id}-df-restricted/archive/failures.csv
+      compression: BZIP2
+    zone: europe-west3-a
+
+pipelines:
+  # Workers in a different region from the pipeline, e.g. close to the data.
+  nightly-reconciliation:
+    schedule: "0 1 * * *"
+    google_template:
+      name: GCS_Text_to_BigQuery_Flex
+    parameters:
+      inputFilePattern: gs://${project_id}-df-restricted/recon/*.json
+      JSONPath: gs://${project_id}-df-restricted/schemas/recon.json
+      outputTable: ${project_id}:payments.reconciliation
+      bigQueryLoadingTemporaryDirectory: gs://${project_id}-df-restricted/bq-tmp
+    worker_region: europe-west4
